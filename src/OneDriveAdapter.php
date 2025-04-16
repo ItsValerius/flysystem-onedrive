@@ -5,10 +5,11 @@ namespace Justus\FlysystemOneDrive;
 use Exception;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Psr7\StreamWrapper;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Support\Facades\Http;
 use League\Flysystem\Config;
-use League\Flysystem\FileAttributes;
 use League\Flysystem\DirectoryAttributes;
+use League\Flysystem\FileAttributes;
 use League\Flysystem\FilesystemAdapter;
 use League\Flysystem\StorageAttributes;
 use League\Flysystem\UnableToReadFile;
@@ -22,12 +23,13 @@ use Microsoft\Graph\Model\DriveItem;
 use Microsoft\Graph\Model\File;
 use Microsoft\Graph\Model\UploadSession;
 use stdClass;
-use GuzzleHttp\Psr7\Utils;
 
 class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapter
 {
     protected Graph $graph;
+
     protected string $drive;
+
     protected array $options = [];
 
     /**
@@ -50,9 +52,14 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
         }
     }
 
+    public function getUrl(string $path)
+    {
+        return $this->getDriveItem($this->getUrlToPath($path))->getProperties()['@microsoft.graph.downloadUrl'];
+    }
+
     public function getDriveRootUrl(): string
     {
-        return '/' . $this->options['directory_type'] . '/' . $this->drive . '/root';
+        return '/'.$this->options['directory_type'].'/'.$this->drive.'/root';
     }
 
     public function getUrlToPath(string $path): string
@@ -61,7 +68,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
             return $this->getDriveRootUrl();
         }
 
-        return $this->getDriveRootUrl() . ':/' . $path;
+        return $this->getDriveRootUrl().':/'.$path;
     }
 
     /**
@@ -70,7 +77,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
      */
     protected function getDriveItemUrl(string $path): string
     {
-        return '/' . $this->options['directory_type'] . '/' . $this->drive . '/items/' . $this->getDriveItem($path)->getId();
+        return '/'.$this->options['directory_type'].'/'.$this->drive.'/items/'.$this->getDriveItem($path)->getId();
     }
 
     /**
@@ -89,8 +96,6 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     }
 
     /**
-     * @param string $path
-     * @return bool
      * @throws Exception|GuzzleException
      */
     public function directoryExists(string $path): bool
@@ -118,7 +123,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     /**
      * @throws Exception|GuzzleException
      */
-    public function write(string $path, string $contents, Config $config = null): void
+    public function write(string $path, string $contents, ?Config $config = null): void
     {
         if (strlen($contents) > 4194304) {
             $stream = fopen('php://temp', 'r+');
@@ -137,7 +142,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
         $this->graph
             ->createRequest(
                 'PUT',
-                $this->getDriveItemUrl($parentItem) . ":/$file_name:/content"
+                $this->getDriveItemUrl($parentItem).":/$file_name:/content"
             )
             ->addHeaders([
                 'Content-Type' => 'text/plain',
@@ -161,10 +166,9 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     }
 
     /**
-     * @param $contents
      * @throws Exception|GuzzleException
      */
-    public function writeStream(string $path, $contents, Config $config = null): void
+    public function writeStream(string $path, $contents, ?Config $config = null): void
     {
         $path = trim($path, '/');
         $this->ensureValidPath($path);
@@ -175,7 +179,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
         $chunk_size = $config->withDefaults($this->options)->get('chunk_size');
         $offset = 0;
 
-        $guzzle = new Http();
+        $guzzle = new Http;
         while ($chunk = fread($contents, $chunk_size)) {
             $this->writeChunk($guzzle, $upload_url, $meta['size'], $chunk, $offset);
             $offset += $chunk_size;
@@ -195,7 +199,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
         ];
 
         $response = $http::withHeaders($headers)
-            ->withBody($chunk,'application/octet-stream')
+            ->withBody($chunk, 'application/octet-stream')
             ->timeout($this->options['request_timeout'])
             ->put($upload_url);
 
@@ -235,12 +239,12 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
             }
 
             throw new Exception(
-                'Unknown error occurred while uploading last part of file. HTTP response code is ' . $response->status()
+                'Unknown error occurred while uploading last part of file. HTTP response code is '.$response->status()
             );
         }
 
         if ($response->status() !== 202) {
-            throw new Exception('Unknown error occurred while trying to upload file chunk. HTTP status code is ' . $response->status());
+            throw new Exception('Unknown error occurred while trying to upload file chunk. HTTP status code is '.$response->status());
         }
 
     }
@@ -251,8 +255,8 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     public function read(string $path): string
     {
         try {
-            if (!($object = $this->readStream($path))) {
-                throw new UnableToReadFile('Unable to read file at ' . $path);
+            if (! ($object = $this->readStream($path))) {
+                throw new UnableToReadFile('Unable to read file at '.$path);
             }
 
             $object['contents'] = stream_get_contents($object['stream']);
@@ -265,17 +269,16 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     }
 
     /**
-     * @return resource
      * @throws GuzzleException
      * @throws Exception
      */
-    public function readStream(string $path)
+    public function readStream(string $path): array
     {
         try {
             $path = $this->getUrlToPath($path);
 
             $driveItem = $this->getDriveItem($path);
-            //ensure we're dealing with a file
+            // ensure we're dealing with a file
             if ($driveItem->getFile() == null) {
                 throw new UnableToReadFile("Drive item at $path is not a file");
             }
@@ -285,7 +288,9 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
                 $download_url
             );
 
-            return StreamWrapper::getResource(Utils::streamFor($response->body()));
+            $stream = StreamWrapper::getResource(Utils::streamFor($response->body()));
+
+            return compact('stream');
         } catch (Exception $e) {
             throw new Exception($e);
         }
@@ -341,11 +346,11 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
             $this->graph
                 ->createRequest(
                     'POST',
-                    $this->getDriveItemUrl($parentItem) . '/children'
+                    $this->getDriveItemUrl($parentItem).'/children'
                 )
                 ->attachBody([
                     'name' => $newDirName,
-                    'folder' => new stdClass(),
+                    'folder' => new stdClass,
                 ])
                 ->setReturnType(DriveItem::class)
                 ->execute();
@@ -386,8 +391,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
                     ? $item->getFile()->getMimeType()
                     : null,
             ]);
-        }
-        catch (Exception $e) {
+        } catch (Exception $e) {
             throw new Exception($e);
         }
     }
@@ -406,8 +410,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
                     ->getLastModifiedDateTime()
                     ->getTimestamp(),
             ]);
-        }
-        catch (Exception $e) {
+        } catch (Exception $e) {
             throw new Exception($e);
         }
     }
@@ -424,35 +427,32 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
                     $this->getUrlToPath($path)
                 )->getSize(),
             ]);
-        }
-        catch (Exception $e) {
+        } catch (Exception $e) {
             throw new Exception($e);
         }
     }
 
-
     /**
-     * @return iterable
      * @throws Exception|GuzzleException
      */
     public function listContents(string $path, bool $deep = true): iterable
     {
         try {
-            $path = $path ? $this->getUrlToPath($path) . ':/children' : '/' . $this->options['directory_type'] . '/' . $this->drive . '/root/children';
+            $path = $path ? $this->getUrlToPath($path).':/children' : '/'.$this->options['directory_type'].'/'.$this->drive.'/root/children';
 
             /** @var DriveItem[] $items */
             $items = [];
             $request = $this->graph
                 ->createCollectionRequest('GET', $path)
                 ->setReturnType(DriveItem::class);
-            while (!$request->isEnd()) {
+            while (! $request->isEnd()) {
                 $items = array_merge($items, $request->getPage());
             }
             if ($deep) {
                 $folders = array_filter($items, fn ($item) => $item->getFolder() !== null);
                 while (count($folders)) {
                     $folder = array_pop($folders);
-                    $folder_path = $folder->getParentReference()->getPath() . DIRECTORY_SEPARATOR . $folder->getName();
+                    $folder_path = $folder->getParentReference()->getPath().DIRECTORY_SEPARATOR.$folder->getName();
                     $children = $this->getChildren($folder_path);
                     $items = array_merge($items, $children);
                     $folders = array_merge($folders, array_filter($children, fn ($child) => $child->getFolder() !== null));
@@ -467,15 +467,16 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     }
 
     /**
-     * @param DriveItem[] $drive_items
+     * @param  DriveItem[]  $drive_items
      * @return array<int, FileAttributes|DirectoryAttributes>
      */
     private function convertDriveItemsToStorageAttributes(array $drive_items): array
     {
         return array_map(function (DriveItem $item) {
             $class = $item->getFile() ? FileAttributes::class : DirectoryAttributes::class;
-            $path = $item->getParentReference()->getPath() . DIRECTORY_SEPARATOR . $item->getName();
+            $path = $item->getParentReference()->getPath().DIRECTORY_SEPARATOR.$item->getName();
             $driveLessPath = array_reverse(explode('root:', $path, 2))[0];
+
             return $class::fromArray([
                 StorageAttributes::ATTRIBUTE_TYPE => $item->getFile() ? StorageAttributes::TYPE_FILE : StorageAttributes::TYPE_DIRECTORY,
                 StorageAttributes::ATTRIBUTE_PATH => $driveLessPath,
@@ -495,13 +496,13 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
      */
     private function getChildren($directory): array
     {
-        $path = $directory . ':/children';
+        $path = $directory.':/children';
         $request = $this->graph
             ->createCollectionRequest('GET', $path)
             ->setReturnType(DriveItem::class);
         /** @var DriveItem[] $items */
         $items = [];
-        while (!$request->isEnd()) {
+        while (! $request->isEnd()) {
             $items = array_merge($items, $request->getPage());
         }
 
@@ -511,7 +512,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     /**
      * @throws Exception
      */
-    public function move(string $source, string $destination, Config $config = null): void
+    public function move(string $source, string $destination, ?Config $config = null): void
     {
         try {
             $destination = trim($destination, '/');
@@ -546,7 +547,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     /**
      * @throws Exception
      */
-    public function copy(string $source, string $destination, Config $config = null): void
+    public function copy(string $source, string $destination, ?Config $config = null): void
     {
         try {
             $destination = trim($destination, '/');
@@ -563,7 +564,7 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
             $this->graph
                 ->createRequest(
                     'POST',
-                    $this->getDriveItemUrl($source) . '/copy'
+                    $this->getDriveItemUrl($source).'/copy'
                 )
                 ->attachBody([
                     'parentReference' => [
@@ -599,7 +600,6 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     }
 
     /**
-     *
      * @throws GuzzleException
      * @throws GraphException
      */
@@ -622,9 +622,9 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
         $directories = explode('/', $path);
         $current_path = '';
         foreach ($directories as $directory) {
-            $current_path = trim($current_path .= '/' . $directory, '/');
-            if (!$this->directoryExists($current_path)) {
-                $this->createDirectory($current_path, new Config());
+            $current_path = trim($current_path .= '/'.$directory, '/');
+            if (! $this->directoryExists($current_path)) {
+                $this->createDirectory($current_path, new Config);
             }
         }
     }
