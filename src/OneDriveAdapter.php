@@ -255,12 +255,11 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
     public function read(string $path): string
     {
         try {
-            if (! ($object = $this->readStream($path))) {
+            if (! ($stream = $this->readStream($path))) {
                 throw new UnableToReadFile('Unable to read file at '.$path);
             }
 
-            $object['contents'] = stream_get_contents($object['stream']);
-            unset($object['stream']);
+            $object['contents'] = stream_get_contents($stream);
 
             return $object['contents'];
         } catch (Exception $e) {
@@ -272,28 +271,27 @@ class OneDriveAdapter extends OneDriveUtilityAdapter implements FilesystemAdapte
      * @throws GuzzleException
      * @throws Exception
      */
-    public function readStream(string $path): array
+    public function readStream(string $path)
     {
-        try {
-            $path = $this->getUrlToPath($path);
+        // Resolve the full OneDrive path
+        $driveItem = $this->getDriveItem($this->getUrlToPath($path));
 
-            $driveItem = $this->getDriveItem($path);
-            // ensure we're dealing with a file
-            if ($driveItem->getFile() == null) {
-                throw new UnableToReadFile("Drive item at $path is not a file");
-            }
-            $download_url = $driveItem->getProperties()['@microsoft.graph.downloadUrl'];
-
-            $response = Http::get(
-                $download_url
-            );
-
-            $stream = StreamWrapper::getResource(Utils::streamFor($response->body()));
-
-            return compact('stream');
-        } catch (Exception $e) {
-            throw new Exception($e);
+        // Ensure it's a file
+        if ($driveItem->getFile() === null) {
+            throw new UnableToReadFile("Drive item at {$path} is not a file");
         }
+
+        // Retrieve the time-limited download link
+        $downloadUrl = $driveItem->getProperties()['@microsoft.graph.downloadUrl'];
+
+        // Make a GET request to fetch the file
+        $response = Http::get($downloadUrl);
+
+        // Convert the response body into a stream resource
+        $stream = StreamWrapper::getResource(Utils::streamFor($response->body()));
+
+        // Return the raw PHP resource—NOT an array
+        return $stream;
     }
 
     /**
